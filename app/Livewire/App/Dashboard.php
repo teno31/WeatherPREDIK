@@ -2,57 +2,106 @@
 
 namespace App\Livewire\App;
 
-use Illuminate\Support\Facades\Http;
+use App\Services\WeatherService;
 use Illuminate\Support\Facades\Log;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 class Dashboard extends Component
 {
 
-    public $query = '';
-    public $weather = null;
-    public $suggestions = [];
+    public ?array $weatherData = null;
+    public ?string $error = null;
+    public bool $loading = true;
+    public bool $locationRequested = false;
+    public bool $useGeolocation = true; // Flag to enable auto-request
 
-    public function updatedQuery()
+    // Default coordinates (fallback if user denies location)
+    public float $latitude = 10.3157;  // Cebu, Philippines
+    public float $longitude = 123.8854;
+
+    /**
+     * Component initialization
+     * 
+     * Instead of immediately fetching weather, we wait for the browser
+     * to provide the user's location via JavaScript
+     */
+    public function mount()
     {
-        if (strlen($this->query) < 2) {
-            $this->suggestions = [];
-            return;
-        }
-
-        $geoURL = env('GEO_URL');
-        $apiKey = env('WEATHER_API_KEY');
-
-        $response = Http::get($geoURL, [
-            'q' => $this->query,
-            'limit' => 5,
-            'appid' => $apiKey
-        ]);
-
-        $this->suggestions = $response->json();
-
-        Log::info('hello');
+        // Don't fetch weather yet - let JavaScript get location first
+        // The loading state will show until location is obtained
+        $this->loading = true;
     }
 
-    public function setLocation($lat, $lon, $name)
+    /**
+     * Called by JavaScript after getting user's location
+     * or when user denies location permission
+     */
+    #[On('location-obtained')]
+    public function handleLocationObtained(?float $lat = null, ?float $lon = null)
     {
-        $url = env('WEATHER_URL');
-        $apiKey = env('WEATHER_API_KEY');
+        $this->locationRequested = true;
 
-        $response = Http::get($url, [
-            'lat' => $lat,
-            'lon' => $lon,
-            'appid' => $apiKey,
-            'units' => 'metric'
-        ]);
-
-        if ($response->ok()) {
-            $this->weather = $response->json();
-            $this->query = $name;
-            $this->suggestions = [];
+        if ($lat !== null && $lon !== null) {
+            // User allowed location access
+            $this->latitude = $lat;
+            $this->longitude = $lon;
+            Log::info("Lan and Lon $lat , $lon");
         }
+        // If lat/lon are null, use default coordinates (already set)
 
-        Log::info('wmasdasd');
+        $this->fetchWeather();
+    }
+
+    /**
+     * Fetch weather data from API
+     */
+    public function fetchWeather()
+    {
+        $this->loading = true;
+        $this->error = null;
+
+        try {
+            $weatherService = app(WeatherService::class);
+            $this->weatherData = $weatherService->getFormattedWeather(
+                $this->latitude,
+                $this->longitude
+            );
+        } catch (\Exception $e) {
+            $this->error = 'Failed to load weather data. Please try again.';
+            Log::error('Weather fetch error: ' . $e->getMessage());
+        } finally {
+            $this->loading = false;
+        }
+    }
+
+    /**
+     * Manual refresh button
+     */
+    #[On('refresh-weather')]
+    public function refresh()
+    {
+        $this->fetchWeather();
+    }
+
+    /**
+     * Update location manually (for location search feature)
+     */
+    public function updateLocation(float $lat, float $lon)
+    {
+        $this->latitude = $lat;
+        $this->longitude = $lon;
+        $this->fetchWeather();
+    }
+
+    /**
+     * User manually denied location - use default
+     */
+    #[On('use-default-location')]
+    public function useDefaultLocation()
+    {
+        $this->locationRequested = true;
+        $this->fetchWeather();
     }
 
     public function render()

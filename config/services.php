@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'weather_api' => [
+        'base_url' => env('OPEN_METEO_WEATHER_URL'),
+        'geolocation_url' => env('OPEN_METEO_GEOLOCATION_URL')
+    ]
+
 ];
